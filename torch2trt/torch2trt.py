@@ -1,6 +1,6 @@
 import torch
 import tensorrt as trt
-from copy import copy
+from copy import copy, deepcopy
 import numpy as np
 from .calibration import TensorBatchDataset, DatasetCalibrator, DEFAULT_CALIBRATION_ALGORITHM
 
@@ -360,8 +360,11 @@ def torch2trt(module,
     inputs_in = inputs
     
     # copy inputs to avoid modifications to source data
-    inputs = [tensor.clone()[0:1] for tensor in inputs]  # only run single entry
-    
+    inputs_torch = [tensor.clone()[0:1]
+                    if isinstance(torch.Tensor)  else deepcopy(tensor)
+                    for tensor in inputs]  # only run single entry
+    inputs = [tensor for tensor in inputs_torch if instance(tensor, torch.Tensor)]
+
     logger = trt.Logger(log_level)
     builder = trt.Builder(logger)
     network = builder.create_network()
@@ -374,10 +377,12 @@ def torch2trt(module,
             inputs = (inputs, )
         ctx.add_inputs(inputs, input_names)
 
-        outputs = module(*inputs)
+        outputs = module(*inputs_torch)
 
         if not isinstance(outputs, tuple) and not isinstance(outputs, list):
             outputs = (outputs, )
+         
+        output = tuple([output for output in outputs if isinstance(output, torch.Tensor)])
         ctx.mark_outputs(outputs, output_names)
 
     builder.max_workspace_size = max_workspace_size
